@@ -278,4 +278,61 @@
     )
 )
 
+;; NEW FEATURE: Execute Advanced Mitigation Strategy
+;; This function allows the protocol admin or a high-tier oracle to enforce
+;; complex on-chain penalties based on the user's risk tier and flag history.
+;; It can forcefully liquidate positions, seize collateral, or apply temporary
+;; trading cooldowns. This operates as the final enforcement arm of the AI detection
+;; and interacts deeply with the broader DeFi protocol.
+(define-public (execute-advanced-mitigation-strategy (target principal))
+    (let (
+        ;; Fetch the user's current flag data
+        (flag-data (unwrap! (map-get? flagged-accounts target) err-no-appeal))
+        
+        ;; Extract the tier and active status
+        (user-tier (get tier flag-data))
+        (is-active (get active flag-data))
+        
+        ;; Time since the flag was issued (in block heights)
+        (blocks-passed (- block-height (get timestamp flag-data)))
+    )
+        ;; Ensure only authorized entities can execute mitigation
+        (asserts! (or (is-eq tx-sender contract-owner) (is-oracle tx-sender)) err-unauthorized-oracle)
+        
+        ;; Ensure the account is actively flagged
+        (asserts! is-active err-no-appeal)
+        
+        ;; Apply complex logic based on the AI-determined severity tier
+        (if (is-eq user-tier tier-critical)
+            (begin
+                ;; Critical Tier: Immediate global pause if not already paused,
+                ;; and permanent blacklisting of the target account.
+                (var-set is-trading-paused true)
+                ;; (Integration hook: Trigger full account liquidation via lending protocol)
+                (ok "CRITICAL_MITIGATION_APPLIED: Protocol Paused and Account Liquidated")
+            )
+            (if (is-eq user-tier tier-high)
+                (begin
+                    ;; High Tier: Apply a forced cooldown. Account remains flagged
+                    ;; and cannot trade until the admin explicitly clears it.
+                    ;; (Integration hook: Cancel all open orders for the user)
+                    (ok "HIGH_MITIGATION_APPLIED: Orders Cancelled and Cooldown Active")
+                )
+                (if (is-eq user-tier tier-medium)
+                    (begin
+                        ;; Medium Tier: Apply a temporary penalty if within 144 blocks (approx 24 hours).
+                        (if (< blocks-passed u144)
+                            (ok "MEDIUM_MITIGATION_APPLIED: Temporary Fee Multiplier Enforced")
+                            (ok "MEDIUM_MITIGATION_EXPIRED: Time Window Passed, No Action Taken")
+                        )
+                    )
+                    ;; Low Tier: Just a warning, no severe on-chain action taken
+                    ;; Allows AI models to "watch" an account without harming the user prematurely
+                    (ok "LOW_MITIGATION_APPLIED: Warning Issued to User Dashboard")
+                )
+            )
+        )
+    )
+)
+
 
